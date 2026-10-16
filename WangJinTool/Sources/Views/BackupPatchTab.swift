@@ -534,9 +534,10 @@ struct CreatePatchSheetView: View {
                             .font(.system(size: 12, design: .monospaced))
                             .frame(height: 180)
                     }
-                    .listRowBackground(Color(white: 0.12))
                 }
-                .scrollContentBackground(.hidden)
+                .onAppear {
+                    UITableView.appearance().backgroundColor = .clear
+                }
             }
             .navigationTitle("Tạo Gói .3105 Mới")
             .navigationBarTitleDisplayMode(.inline)
