@@ -64,6 +64,24 @@ public enum PatchPackageCodec {
         let replacementDigests: [String: Data]
     }
 
+    // MARK: - Inspect Package Metadata
+    public static func inspectPackage(_ data: Data) throws -> (packageID: UUID, isPasswordProtected: Bool) {
+        guard data.count > magic.count, data.prefix(magic.count) == magic else {
+            throw PatchPackageError.unsupportedFormat
+        }
+
+        let encodedEnvelope = data.dropFirst(magic.count)
+        guard let envelope = try? PropertyListDecoder().decode(Envelope.self, from: Data(encodedEnvelope)) else {
+            throw PatchPackageError.unsupportedFormat
+        }
+
+        guard (minimumSchemaVersion...latestSchemaVersion).contains(envelope.schemaVersion) else {
+            throw PatchPackageError.unsupportedVersion
+        }
+
+        return (envelope.packageID, envelope.isPasswordProtected)
+    }
+
     // MARK: - Decode Package
     public static func decode(_ data: Data, password: String? = nil) throws -> PatchProject {
         guard data.count > magic.count, data.prefix(magic.count) == magic else {

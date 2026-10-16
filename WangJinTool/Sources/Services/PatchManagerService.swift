@@ -13,6 +13,15 @@ public final class PatchManagerService: ObservableObject {
 
     @Published public var installedPatches: [InstalledPatchRecord] = []
     @Published public var isProcessing: Bool = false
+    @Published public var pendingPasswordProtectedURL: URL? = nil
+
+    public func isPackageProtected(at url: URL) -> Bool {
+        guard let data = try? Data(contentsOf: url),
+              let info = try? PatchPackageCodec.inspectPackage(data) else {
+            return false
+        }
+        return info.isPasswordProtected
+    }
 
     private let fm = FileManager.default
     private let appContainersRoot = "/var/mobile/Containers/Data/Application"

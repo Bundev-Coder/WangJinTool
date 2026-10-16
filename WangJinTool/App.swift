@@ -14,7 +14,11 @@ struct WangJinToolApp: App {
             ContentView()
                 .onOpenURL { url in
                     if url.pathExtension.lowercased() == "3105" {
-                        _ = try? PatchManagerService.shared.importPackage(from: url)
+                        if PatchManagerService.shared.isPackageProtected(at: url) {
+                            PatchManagerService.shared.pendingPasswordProtectedURL = url
+                        } else {
+                            _ = try? PatchManagerService.shared.importPackage(from: url)
+                        }
                     }
                 }
         }

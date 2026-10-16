@@ -217,6 +217,23 @@ struct BackupPatchTab: View {
                     ShareActivityView(activityItems: [url])
                 }
             }
+            .sheet(isPresented: $showPasswordPrompt) {
+                PasswordUnlockSheetView(
+                    targetURL: pendingImportURL,
+                    onUnlock: { pwd in unlockAndImport(password: pwd) },
+                    onCancel: {
+                        showPasswordPrompt = false
+                        pendingImportURL = nil
+                        patchService.pendingPasswordProtectedURL = nil
+                    }
+                )
+            }
+            .onReceive(patchService.$pendingPasswordProtectedURL) { incomingURL in
+                if let url = incomingURL {
+                    pendingImportURL = url
+                    showPasswordPrompt = true
+                }
+            }
             .alert(isPresented: $showAlert) {
                 Alert(
                     title: Text("Bản Vá .3105"),
@@ -228,6 +245,12 @@ struct BackupPatchTab: View {
     }
 
     private func handlePickedFile(url: URL) {
+        if patchService.isPackageProtected(at: url) {
+            pendingImportURL = url
+            showPasswordPrompt = true
+            return
+        }
+
         do {
             _ = try patchService.importPackage(from: url)
             alertMessage = "Đã nhập thành công gói bản vá .3105 vào thư viện!"
@@ -243,6 +266,22 @@ struct BackupPatchTab: View {
             }
         } catch {
             alertMessage = "Lỗi khi nhập gói: \(error.localizedDescription)"
+            showAlert = true
+        }
+    }
+
+    private func unlockAndImport(password: String) {
+        guard let url = pendingImportURL else { return }
+        do {
+            _ = try patchService.importPackage(from: url, password: password)
+            showPasswordPrompt = false
+            pendingImportURL = nil
+            patchService.pendingPasswordProtectedURL = nil
+            alertMessage = "Đã mở khóa và cài đặt thành công gói bản vá .3105!"
+            showAlert = true
+            triggerSuccessHaptic()
+        } catch {
+            alertMessage = "Mật khẩu không đúng: \(error.localizedDescription)"
             showAlert = true
         }
     }
@@ -305,9 +344,16 @@ struct PatchCardView: View {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(record.project.name)
-                            .font(.system(size: 16, weight: .bold))
-                            .foregroundColor(.white)
+                        HStack(spacing: 6) {
+                            Text(record.project.name)
+                                .font(.system(size: 16, weight: .bold))
+                                .foregroundColor(.white)
+                            if record.project.isPrivate {
+                                Image(systemName: "lock.fill")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.yellow)
+                            }
+                        }
 
                         Text("Tác giả: \(record.project.author)")
                             .font(.system(size: 12))
@@ -586,3 +632,117 @@ struct CreatePatchSheetView: View {
         }
     }
 }
+
+// MARK: - Password Unlock Sheet View
+struct PasswordUnlockSheetView: View {
+    let targetURL: URL?
+    let onUnlock: (String) -> Void
+    let onCancel: () -> Void
+
+    @State private var passwordText: String = ""
+    @State private var isPasswordVisible: Bool = false
+    @State private var errorMessage: String = ""
+
+    var body: some View {
+        NavigationView {
+            ZStack {
+                Color.black.ignoresSafeArea()
+
+                VStack(spacing: 24) {
+                    // Header Icon
+                    ZStack {
+                        Circle()
+                            .fill(LinearGradient(colors: [.yellow.opacity(0.2), .orange.opacity(0.1)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                            .frame(width: 80, height: 80)
+
+                        Image(systemName: "lock.shield.fill")
+                            .font(.system(size: 38))
+                            .foregroundStyle(LinearGradient(colors: [.yellow, .orange], startPoint: .top, endPoint: .bottom))
+                    }
+                    .padding(.top, 24)
+
+                    VStack(spacing: 8) {
+                        Text("Gói Bản Vá Được Khóa")
+                            .font(.system(size: 20, weight: .bold))
+                            .foregroundColor(.white)
+
+                        Text("Tệp .3105 này được bảo vệ bằng mật khẩu mã hóa AES-256. Vui lòng nhập mật khẩu mở khóa do tác giả cung cấp.")
+                            .font(.system(size: 13))
+                            .foregroundColor(.gray)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 24)
+                    }
+
+                    // Password Input
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            if isPasswordVisible {
+                                TextField("Nhập mật khẩu mở khóa...", text: $passwordText)
+                                    .foregroundColor(.white)
+                                    .autocapitalization(.none)
+                                    .disableAutocorrection(true)
+                            } else {
+                                SecureField("Nhập mật khẩu mở khóa...", text: $passwordText)
+                                    .foregroundColor(.white)
+                            }
+
+                            Button(action: { isPasswordVisible.toggle() }) {
+                                Image(systemName: isPasswordVisible ? "eye.slash.fill" : "eye.fill")
+                                    .foregroundColor(.gray)
+                            }
+                        }
+                        .padding(14)
+                        .background(Color.white.opacity(0.08))
+                        .cornerRadius(12)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(Color.white.opacity(0.15), lineWidth: 1)
+                        )
+
+                        if !errorMessage.isEmpty {
+                            Text(errorMessage)
+                                .font(.system(size: 12))
+                                .foregroundColor(.red)
+                                .padding(.leading, 4)
+                        }
+                    }
+                    .padding(.horizontal, 24)
+
+                    // Action Button
+                    Button(action: {
+                        if passwordText.trimmingCharacters(in: .whitespaces).isEmpty {
+                            errorMessage = "Vui lòng nhập mật khẩu!"
+                            return
+                        }
+                        errorMessage = ""
+                        onUnlock(passwordText)
+                    }) {
+                        HStack {
+                            Image(systemName: "key.fill")
+                            Text("Mở Khóa & Cài Đặt")
+                        }
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundColor(.black)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(
+                            LinearGradient(colors: [.yellow, .orange], startPoint: .leading, endPoint: .trailing)
+                        )
+                        .cornerRadius(12)
+                    }
+                    .padding(.horizontal, 24)
+
+                    Spacer()
+                }
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Hủy") { onCancel() }
+                        .foregroundColor(.gray)
+                }
+            }
+        }
+    }
+}
+
