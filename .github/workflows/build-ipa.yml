@@ -1,15 +1,15 @@
-name: Build Unsigned IPA
+name: Build iOS IPA (ARM64 Physical Device)
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, master ]
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  build:
+  build-ipa:
     runs-on: macos-15
     env:
       CODE_SIGNING_ALLOWED: NO
@@ -18,6 +18,17 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Select Latest Xcode & Swift Environment
+        run: |
+          LATEST_XCODE=$(ls -d /Applications/Xcode_2*.app /Applications/Xcode_16*.app /Applications/Xcode*.app 2>/dev/null | sort -V | tail -n 1)
+          if [ -n "$LATEST_XCODE" ]; then
+            echo "Selecting Xcode: $LATEST_XCODE"
+            sudo xcode-select -s "$LATEST_XCODE/Contents/Developer"
+          fi
+          xcodebuild -version
+          swift --version
+          echo "iOS SDK Path: $(xcrun --show-sdk-path --sdk iphoneos)"
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -33,45 +44,51 @@ jobs:
       - name: Generate Xcode Project
         run: xcodegen generate
 
-      - name: Build and Archive .app
+      - name: Build and Archive ARM64 Device .app
         run: |
           xcodebuild \
             -scheme WangJinTool \
             -project WangJinTool.xcodeproj \
             -configuration Release \
             -destination 'generic/platform=iOS' \
-            -archivePath ${{ runner.temp }}/WangJinTool.xcarchive \
-            clean archive \
+            -archivePath "${{ runner.temp }}/WangJinTool.xcarchive" \
+            archive \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY=""
 
       - name: Create Payload and Pack IPA
         run: |
-          mkdir -p ${{ runner.temp }}/Payload
-          cp -R ${{ runner.temp }}/WangJinTool.xcarchive/Products/Applications/WangJinTool.app ${{ runner.temp }}/Payload/
-          cd ${{ runner.temp }}
-          zip -r WangJinTool-Unsigned.ipa Payload
+          mkdir -p "${{ runner.temp }}/Payload"
+          APP_PATH=$(find "${{ runner.temp }}/WangJinTool.xcarchive/Products/Applications" -name "*.app" -maxdepth 1 | head -n 1)
+          echo "Found app bundle at: $APP_PATH"
+          cp -R "$APP_PATH" "${{ runner.temp }}/Payload/"
+          cd "${{ runner.temp }}"
+          zip -r -9 WangJinTool-Unsigned.ipa Payload
+          ls -lh WangJinTool-Unsigned.ipa
 
       - name: Upload IPA Artifact
         uses: actions/upload-artifact@v4
         with:
           name: WangJinTool-Unsigned.ipa
           path: ${{ runner.temp }}/WangJinTool-Unsigned.ipa
+          retention-days: 7
 
-      - name: Create GitHub Release
+      - name: Create GitHub Release (Direct IPA Download)
         uses: softprops/action-gh-release@v2
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
         with:
           tag_name: v1.0.${{ github.run_number }}
-          name: "WangJin Tool iOS Unsigned IPA (Build ${{ github.run_number }})"
+          name: "WangJin Tool iOS (Build ${{ github.run_number }})"
           body: |
-            ### 🛠️ WangJin Tool iOS (Unsigned IPA)
-            Native iOS app-data container browser, cache & junk cleaner, and portable patch manager.
-            
-            - **Build Number**: ${{ github.run_number }}
-            - **Target**: `generic/platform=iOS` (ARM64 Physical Device)
-            - **TrollStore Ready**: Pre-configured with `com.apple.private.security.no-sandbox` entitlements
-            - **Compatible Sideloaders**: TrollStore, AltStore, Sideloadly, ESign, KSign
+            ### 🛠️ WangJin Tool iOS (Native SwiftUI Suite)
+            - **Hỗ trợ đầy đủ định dạng bản vá .3105** (Import, Export, Apply, Rollback).
+            - **Tích hợp dọn dẹp rác & bộ nhớ đệm container**: App Containers, Safari Cache, WebKit.
+            - **Trình duyệt dữ liệu chuyên sâu**: Quản lý tệp tin container ứng dụng.
+            - **Tối ưu hóa TrollStore & Sideload**: Tương thích AltStore, Sideloadly, ESign, KSign, Scarlet, TrollStore.
+            - **Kiến trúc**: ARM64 Physical Device (iPhone thật).
           files: ${{ runner.temp }}/WangJinTool-Unsigned.ipa
           draft: false
           prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
