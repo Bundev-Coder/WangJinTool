@@ -28,8 +28,8 @@ struct ContentView: View {
             
             BackupPatchTab()
                 .tabItem {
-                    Image(systemName: "bolt.badge.clock.fill")
-                    Text("Bản Vá")
+                    Image(systemName: "shippingbox.fill")
+                    Text("Bản Vá .3105")
                 }
                 .tag(2)
             

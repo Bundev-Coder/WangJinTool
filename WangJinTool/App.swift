@@ -12,6 +12,11 @@ struct WangJinToolApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .onOpenURL { url in
+                    if url.pathExtension.lowercased() == "3105" {
+                        _ = try? PatchManagerService.shared.importPackage(from: url)
+                    }
+                }
         }
     }
 }
