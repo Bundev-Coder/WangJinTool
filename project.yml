@@ -10,6 +10,9 @@ targets:
     deploymentTarget: "15.0"
     sources:
       - path: WangJinTool
+        excludes:
+          - "WangJinTool.entitlements"
+          - "Info.plist"
     info:
       path: WangJinTool/Info.plist
       properties:
