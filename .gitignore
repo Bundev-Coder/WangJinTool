@@ -1,0 +1,7 @@
+.DS_Store
+*.xcworkspace
+xcuserdata/
+*.ipa
+Payload/
+DerivedData/
+*.xcuserstate
