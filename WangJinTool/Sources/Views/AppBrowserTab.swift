@@ -67,17 +67,27 @@ struct AppBrowserTab: View {
                     
                     if fileService.isScanning {
                         Spacer()
-                        ProgressView("Đang quét App Containers...")
-                            .foregroundColor(.cyan)
+                        VStack(spacing: 12) {
+                            ProgressView()
+                                .tint(.cyan)
+                            Text("Đang quét toàn bộ ứng dụng và dữ liệu container...")
+                                .font(.system(size: 13))
+                                .foregroundColor(.gray)
+                        }
                         Spacer()
                     } else if filteredApps.isEmpty {
                         Spacer()
-                        VStack(spacing: 8) {
+                        VStack(spacing: 12) {
                             Image(systemName: "folder.badge.questionmark")
                                 .font(.system(size: 44))
                                 .foregroundColor(.gray)
                             Text("Không tìm thấy ứng dụng nào")
                                 .foregroundColor(.gray)
+                            Button(action: { fileService.scanApps() }) {
+                                Text("Quét lại ngay")
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundColor(.cyan)
+                            }
                         }
                         Spacer()
                     } else {
@@ -105,10 +115,17 @@ struct AppBrowserTab: View {
                                     
                                     Spacer()
                                     
-                                    if app.cacheSize > 0 {
-                                        Text(ByteCountFormatter.string(fromByteCount: app.cacheSize, countStyle: .file))
-                                            .font(.system(size: 13, design: .rounded))
-                                            .foregroundColor(.cyan.opacity(0.9))
+                                    VStack(alignment: .trailing, spacing: 2) {
+                                        if app.totalSize > 0 {
+                                            Text(app.formattedTotalSize)
+                                                .font(.system(size: 14, weight: .bold, design: .rounded))
+                                                .foregroundColor(.white)
+                                        }
+                                        if app.cacheSize > 0 {
+                                            Text("Rác: \(app.formattedCacheSize)")
+                                                .font(.system(size: 11, design: .rounded))
+                                                .foregroundColor(.cyan.opacity(0.8))
+                                        }
                                     }
                                 }
                                 .padding(.vertical, 4)
@@ -120,7 +137,7 @@ struct AppBrowserTab: View {
                     }
                 }
             }
-            .navigationTitle("App Containers")
+            .navigationTitle("Dữ Liệu Ứng Dụng")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button(action: { fileService.scanApps() }) {
@@ -141,32 +158,61 @@ struct FileExplorerView: View {
     @State private var items: [FileItem] = []
     @State private var shareURL: URL?
     @State private var showShareSheet: Bool = false
+    @State private var selectedFileForView: FileItem? = nil
     
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
             
-            if items.isEmpty {
-                VStack(spacing: 8) {
-                    Image(systemName: "folder")
-                        .font(.system(size: 40))
+            VStack(spacing: 0) {
+                // Current Path Banner
+                HStack {
+                    Image(systemName: "folder.fill")
+                        .foregroundColor(.cyan)
+                        .font(.system(size: 12))
+                    Text(currentURL.path)
+                        .font(.system(size: 11, design: .monospaced))
                         .foregroundColor(.gray)
-                    Text("Thư mục trống")
-                        .foregroundColor(.gray)
+                        .lineLimit(1)
+                    Spacer()
                 }
-            } else {
-                List(items) { item in
-                    if item.isDirectory {
-                        NavigationLink(destination: FileExplorerView(title: item.name, currentURL: item.url)) {
-                            FileRow(item: item)
-                        }
-                        .listRowBackground(Color.clear)
-                        .listRowSeparatorTint(Color.white.opacity(0.08))
-                    } else {
-                        FileRow(item: item)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(Color.white.opacity(0.04))
+
+                if items.isEmpty {
+                    Spacer()
+                    VStack(spacing: 8) {
+                        Image(systemName: "folder")
+                            .font(.system(size: 40))
+                            .foregroundColor(.gray)
+                        Text("Thư mục trống")
+                            .foregroundColor(.gray)
+                    }
+                    Spacer()
+                } else {
+                    List(items) { item in
+                        if item.isDirectory {
+                            NavigationLink(destination: FileExplorerView(title: item.name, currentURL: item.url)) {
+                                FileRow(item: item)
+                            }
+                            .listRowBackground(Color.clear)
+                            .listRowSeparatorTint(Color.white.opacity(0.08))
+                        } else {
+                            Button(action: {
+                                selectedFileForView = item
+                            }) {
+                                FileRow(item: item)
+                            }
+                            .buttonStyle(.plain)
                             .listRowBackground(Color.clear)
                             .listRowSeparatorTint(Color.white.opacity(0.08))
                             .contextMenu {
+                                Button(action: {
+                                    self.selectedFileForView = item
+                                }) {
+                                    Label("Xem nội dung tệp", systemImage: "doc.text.magnifyingglass")
+                                }
                                 Button(action: {
                                     self.shareURL = item.url
                                     self.showShareSheet = true
@@ -180,18 +226,30 @@ struct FileExplorerView: View {
                                     Label("Xóa", systemImage: "trash")
                                 }
                             }
+                        }
                     }
+                    .listStyle(.plain)
                 }
-                .listStyle(.plain)
             }
         }
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button(action: { loadItems() }) {
+                    Image(systemName: "arrow.clockwise")
+                        .foregroundColor(.cyan)
+                }
+            }
+        }
         .onAppear { loadItems() }
         .sheet(isPresented: $showShareSheet) {
             if let url = shareURL {
                 ShareActivityView(activityItems: [url])
             }
+        }
+        .sheet(item: $selectedFileForView) { item in
+            FileViewerSheetView(fileItem: item)
         }
     }
     
@@ -200,6 +258,7 @@ struct FileExplorerView: View {
     }
 }
 
+// MARK: - File Row
 struct FileRow: View {
     let item: FileItem
     
@@ -234,19 +293,93 @@ struct FileRow: View {
     private func fileIcon(for name: String) -> String {
         let ext = (name as NSString).pathExtension.lowercased()
         switch ext {
-        case "plist", "json", "xml": return "doc.text.fill"
-        case "png", "jpg", "jpeg", "webp": return "photo.fill"
+        case "plist", "json", "xml", "txt", "cfg", "ini": return "doc.text.fill"
+        case "png", "jpg", "jpeg", "webp", "gif": return "photo.fill"
         case "db", "sqlite", "realm": return "cylinder.split.1x2.fill"
-        case "zip", "tar", "gz": return "archivebox.fill"
+        case "zip", "tar", "gz", "3105": return "archivebox.fill"
         default: return "doc.fill"
         }
     }
 }
 
-struct ShareActivityView: UIViewControllerRepresentable {
-    let activityItems: [Any]
-    func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(activityItems: activityItems, applicationActivities: nil)
+// MARK: - File Viewer Sheet View
+struct FileViewerSheetView: View {
+    let fileItem: FileItem
+    @Environment(\.presentationMode) var presentationMode
+    @State private var contentString: String = ""
+    @State private var isBinary: Bool = false
+
+    var body: some View {
+        NavigationView {
+            ZStack {
+                Color.black.ignoresSafeArea()
+
+                VStack(alignment: .leading, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(fileItem.name)
+                            .font(.system(size: 15, weight: .bold, design: .monospaced))
+                            .foregroundColor(.white)
+                        Text("\(fileItem.formattedSize) • \(isBinary ? "Tệp nhị phân" : "Văn bản UTF-8")")
+                            .font(.system(size: 12))
+                            .foregroundColor(.gray)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 12)
+
+                    if isBinary {
+                        Spacer()
+                        VStack(spacing: 12) {
+                            Image(systemName: "doc.zipper")
+                                .font(.system(size: 44))
+                                .foregroundColor(.gray)
+                            Text("Tệp nhị phân không hỗ trợ xem dưới dạng văn bản.")
+                                .font(.system(size: 13))
+                                .foregroundColor(.gray)
+                        }
+                        .frame(maxWidth: .infinity)
+                        Spacer()
+                    } else {
+                        ScrollView {
+                            Text(contentString)
+                                .font(.system(size: 12, design: .monospaced))
+                                .foregroundColor(.white.opacity(0.9))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(14)
+                                .background(Color(white: 0.08))
+                                .cornerRadius(12)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 16)
+                    }
+                }
+            }
+            .navigationTitle("Nội Dung Tệp")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Đóng") { presentationMode.wrappedValue.dismiss() }
+                        .foregroundColor(.gray)
+                }
+            }
+            .onAppear {
+                loadFileContent()
+            }
+        }
     }
-    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
+
+    private func loadFileContent() {
+        if let data = try? Data(contentsOf: fileItem.url) {
+            if let str = String(data: data, encoding: .utf8) {
+                self.contentString = str
+                self.isBinary = false
+            } else if let plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil),
+                      let jsonData = try? JSONSerialization.data(withJSONObject: plist, options: [.prettyPrinted]),
+                      let jsonString = String(data: jsonData, encoding: .utf8) {
+                self.contentString = jsonString
+                self.isBinary = false
+            } else {
+                self.isBinary = true
+            }
+        }
+    }
 }

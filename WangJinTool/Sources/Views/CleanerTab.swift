@@ -53,9 +53,15 @@ struct CleanerTab: View {
                                     .font(.system(size: 28, weight: .bold, design: .rounded))
                                     .foregroundColor(.white)
                                 
-                                Text("Bộ nhớ đệm rác")
+                                Text("Bộ nhớ đệm rác có thể dọn")
                                     .font(.system(size: 13, weight: .medium))
                                     .foregroundColor(.gray)
+                                
+                                if fileService.totalScannedData > 0 {
+                                    Text("Tổng dữ liệu app: \(ByteCountFormatter.string(fromByteCount: fileService.totalScannedData, countStyle: .file)) (\(fileService.apps.count) app)")
+                                        .font(.system(size: 11, weight: .medium))
+                                        .foregroundColor(.cyan.opacity(0.85))
+                                }
                             }
                         }
                         .padding(.top, 20)

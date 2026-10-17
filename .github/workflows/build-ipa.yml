@@ -57,6 +57,14 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY=""
 
+      - name: Inject TrollStore No-Sandbox Entitlements
+        run: |
+          APP_PATH=$(find "${{ runner.temp }}/WangJinTool.xcarchive/Products/Applications" -name "*.app" -maxdepth 1 | head -n 1)
+          echo "Found app bundle at: $APP_PATH"
+          echo "Signing with entitlements: WangJinTool/WangJinTool.entitlements"
+          codesign -s - --force --deep --entitlements WangJinTool/WangJinTool.entitlements "$APP_PATH"
+          codesign -d --entitlements - "$APP_PATH" || true
+
       - name: Create Payload and Pack IPA
         run: |
           mkdir -p "${{ runner.temp }}/Payload"
