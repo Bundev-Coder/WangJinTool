@@ -17,8 +17,36 @@ final class FileManagerService: ObservableObject {
     
     private let fm = FileManager.default
     
-    // Primary path for app containers on TrollStore / jailbreak
-    private let containersPath = "/var/mobile/Containers/Data/Application"
+    // Primary paths for app containers on TrollStore / jailbreak
+    private let appSearchRoots = [
+        "/var/mobile/Containers/Data/Application",
+        "/private/var/mobile/Containers/Data/Application"
+    ]
+    
+    public var hasTrollStoreRootAccess: Bool {
+        for root in appSearchRoots {
+            if let items = try? fm.contentsOfDirectory(atPath: root), !items.isEmpty {
+                return true
+            }
+        }
+        return false
+    }
+    
+    private func readMetadata(at url: URL) -> (bundleID: String, appName: String)? {
+        guard let data = try? Data(contentsOf: url),
+              let plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String: Any],
+              let bundleID = plist["MCMMetadataIdentifier"] as? String, !bundleID.isEmpty else {
+            return nil
+        }
+        var appName = ""
+        if let info = plist["MCMMetadataInfo"] as? [String: Any] {
+            appName = (info["CFBundleDisplayName"] as? String) ?? (info["CFBundleName"] as? String) ?? ""
+        }
+        if appName.isEmpty {
+            appName = bundleID.components(separatedBy: ".").last?.capitalized ?? bundleID
+        }
+        return (bundleID, appName)
+    }
     
     func scanApps(completion: (() -> Void)? = nil) {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
@@ -28,37 +56,34 @@ final class FileManagerService: ObservableObject {
             var discovered: [AppItem] = []
             var totalCache: Int64 = 0
             
-            let containerURL = URL(fileURLWithPath: self.containersPath)
-            
-            // Try scanning root containers directory (requires TrollStore no-sandbox)
-            if self.fm.isReadableFile(atPath: self.containersPath),
-               let items = try? self.fm.contentsOfDirectory(at: containerURL, includingPropertiesForKeys: nil) {
-                
-                for item in items {
-                    let metadataPath = item.appendingPathComponent(".com.apple.mobile_container_manager.metadata.plist")
-                    var appName = item.lastPathComponent
-                    var bundleID = item.lastPathComponent
-                    
-                    if let dict = NSDictionary(contentsOf: metadataPath) {
-                        bundleID = dict["MCMMetadataIdentifier"] as? String ?? bundleID
-                        appName = bundleID.components(separatedBy: ".").last?.capitalized ?? bundleID
+            for root in self.appSearchRoots {
+                let rootURL = URL(fileURLWithPath: root)
+                if let items = try? self.fm.contentsOfDirectory(at: rootURL, includingPropertiesForKeys: nil), !items.isEmpty {
+                    for item in items {
+                        let metadataPath = item.appendingPathComponent(".com.apple.mobile_container_manager.metadata.plist")
+                        if let meta = self.readMetadata(at: metadataPath) {
+                            if discovered.contains(where: { $0.bundleID == meta.bundleID }) { continue }
+                            
+                            let cacheURL = item.appendingPathComponent("Library/Caches")
+                            let tmpURL = item.appendingPathComponent("tmp")
+                            let cSize = self.calculateSize(of: cacheURL) + self.calculateSize(of: tmpURL)
+                            totalCache += cSize
+                            
+                            let appItem = AppItem(
+                                name: meta.appName,
+                                bundleID: meta.bundleID,
+                                containerURL: item,
+                                cacheSize: cSize,
+                                isSystem: meta.bundleID.hasPrefix("com.apple.")
+                            )
+                            discovered.append(appItem)
+                        }
                     }
-                    
-                    let cacheURL = item.appendingPathComponent("Library/Caches")
-                    let tmpURL = item.appendingPathComponent("tmp")
-                    let cSize = self.calculateSize(of: cacheURL) + self.calculateSize(of: tmpURL)
-                    totalCache += cSize
-                    
-                    let appItem = AppItem(
-                        name: appName,
-                        bundleID: bundleID,
-                        containerURL: item,
-                        cacheSize: cSize,
-                        isSystem: bundleID.hasPrefix("com.apple.")
-                    )
-                    discovered.append(appItem)
+                    if !discovered.isEmpty { break }
                 }
-            } else {
+            }
+            
+            if discovered.isEmpty {
                 // Sandbox Mode / Non-TrollStore Fallback: Scan local application sandbox and common test paths
                 let localDoc = self.fm.urls(for: .documentDirectory, in: .userDomainMask).first!
                 let localCache = self.fm.urls(for: .cachesDirectory, in: .userDomainMask).first!

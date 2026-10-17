@@ -225,41 +225,51 @@ public final class PatchManagerService: ObservableObject {
         return record
     }
 
-    // MARK: - Resolve Target Container Path
-    public func resolveContainer(for bundleID: String) -> URL? {
-        // 1. TrollStore Root App Containers
-        if bundleID.hasPrefix("group.") {
-            if let groupURL = findContainer(in: groupContainersRoot, matching: bundleID) {
-                return groupURL
-            }
-        } else {
-            if let appURL = findContainer(in: appContainersRoot, matching: bundleID) {
-                return appURL
+    // MARK: - Update Patch Configuration
+    public func updatePatch(record: InstalledPatchRecord, targetBundleID: String? = nil, updatedRules: [PatchRule]? = nil) {
+        guard let idx = installedPatches.firstIndex(where: { $0.id == record.id }) else { return }
+        
+        var project = installedPatches[idx].project
+        if let target = targetBundleID, !target.isEmpty {
+            project.bundleIdentifiers = [target]
+            for i in 0..<project.rules.count {
+                project.rules[i].bundleID = target
             }
         }
-
-        // 2. Local Fallback for Sandbox / Non-TrollStore testing
-        let localDocs = fm.urls(for: .documentDirectory, in: .userDomainMask).first!
-        let simFolder = localDocs.appendingPathComponent("SimulatedContainers/\(bundleID)", isDirectory: true)
-        if !fm.fileExists(atPath: simFolder.path) {
-            try? fm.createDirectory(at: simFolder, withIntermediateDirectories: true)
+        if let rules = updatedRules {
+            project.rules = rules
         }
-        return simFolder
+        project.updatedAt = Date()
+        installedPatches[idx].project = project
+        saveRegistry()
     }
 
-    private func findContainer(in rootPath: String, matching identifier: String) -> URL? {
-        guard fm.isReadableFile(atPath: rootPath),
-              let items = try? fm.contentsOfDirectory(atPath: rootPath) else {
-            return nil
-        }
+    // MARK: - Resolve Target Container Path
+    private let appSearchRoots = [
+        "/var/mobile/Containers/Data/Application",
+        "/private/var/mobile/Containers/Data/Application"
+    ]
+    private let groupSearchRoots = [
+        "/var/mobile/Containers/Shared/AppGroup",
+        "/private/var/mobile/Containers/Shared/AppGroup"
+    ]
 
-        for item in items {
-            let containerPath = (rootPath as NSString).appendingPathComponent(item)
-            let metadataPath = (containerPath as NSString).appendingPathComponent(".com.apple.mobile_container_manager.metadata.plist")
-            if let dict = NSDictionary(contentsOfFile: metadataPath),
-               let mcmID = dict["MCMMetadataIdentifier"] as? String,
-               mcmID == identifier {
-                return URL(fileURLWithPath: containerPath, isDirectory: true)
+    public func resolveContainer(for bundleID: String) -> URL? {
+        let isGroup = bundleID.hasPrefix("group.")
+        let roots = isGroup ? groupSearchRoots : appSearchRoots
+        
+        for root in roots {
+            let rootURL = URL(fileURLWithPath: root)
+            if let items = try? fm.contentsOfDirectory(at: rootURL, includingPropertiesForKeys: nil), !items.isEmpty {
+                for item in items {
+                    let metadataPath = item.appendingPathComponent(".com.apple.mobile_container_manager.metadata.plist")
+                    if let data = try? Data(contentsOf: metadataPath),
+                       let plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String: Any],
+                       let mcmID = plist["MCMMetadataIdentifier"] as? String,
+                       mcmID == bundleID {
+                        return item
+                    }
+                }
             }
         }
         return nil
