@@ -383,3 +383,11 @@ struct FileViewerSheetView: View {
         }
     }
 }
+
+public struct ShareActivityView: UIViewControllerRepresentable {
+    public let activityItems: [Any]
+    public func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: activityItems, applicationActivities: nil)
+    }
+    public func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
+}
